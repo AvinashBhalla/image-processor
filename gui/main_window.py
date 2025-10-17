@@ -10,6 +10,8 @@ import cv2
 from typing import List, Tuple, Dict
 from pathlib import Path
 from gui.workers import IndexingThread, SearchThread, DuplicateDetectionThread
+from gui.widgets.duplicate_group_viewer import DuplicateGroupViewer
+from gui.widgets.similarity_search_viewer import SimilaritySearchViewer
 
 class ImageProcessorGUI(QMainWindow):
     """
@@ -49,58 +51,34 @@ class ImageProcessorGUI(QMainWindow):
         tab = QWidget()
         layout = QVBoxLayout(tab)
         
-        # Query image selection
-        query_layout = QHBoxLayout()
-        self.query_image_label = QLabel("No image selected")
-        self.query_image_label.setFixedSize(300, 300)
-        self.query_image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.query_image_label.setStyleSheet("border: 2px dashed #ccc;")
-        
-        query_controls = QVBoxLayout()
-        select_query_btn = QPushButton("Select Query Image")
-        select_query_btn.clicked.connect(self.select_query_image)
+        # Controls
+        controls_layout = QHBoxLayout()
         
         self.index_dir_label = QLabel("Index directory: Not set")
-        select_index_btn = QPushButton("Select Image Directory to Search")
+        select_index_btn = QPushButton("Select Index Directory")
         select_index_btn.clicked.connect(self.select_index_directory)
         
-        self.num_results_spin = QSpinBox()
-        self.num_results_spin.setRange(1, 100)
-        self.num_results_spin.setValue(10)
-        self.num_results_spin.setPrefix("Results: ")
+        index_btn = QPushButton("Build Index")
+        index_btn.clicked.connect(self.build_index)
+        index_btn.setStyleSheet("background-color: #FF9800; color: white; padding: 8px;")
         
-        search_btn = QPushButton("Search Similar Images")
-        search_btn.clicked.connect(self.perform_similarity_search)
-        search_btn.setStyleSheet("background-color: #4CAF50; color: white; padding: 10px;")
+        controls_layout.addWidget(self.index_dir_label)
+        controls_layout.addWidget(select_index_btn)
+        controls_layout.addWidget(index_btn)
+        controls_layout.addStretch()
         
-        query_controls.addWidget(select_query_btn)
-        query_controls.addWidget(self.index_dir_label)
-        query_controls.addWidget(select_index_btn)
-        query_controls.addWidget(self.num_results_spin)
-        query_controls.addWidget(search_btn)
-        query_controls.addStretch()
+        layout.addLayout(controls_layout)
         
-        query_layout.addWidget(self.query_image_label)
-        query_layout.addLayout(query_controls)
+        # Progress for indexing
+        self.index_progress = QProgressBar()
+        self.index_progress.setVisible(False)
+        layout.addWidget(self.index_progress)
         
-        layout.addLayout(query_layout)
-        
-        # Progress bar
-        self.search_progress = QProgressBar()
-        layout.addWidget(self.search_progress)
-        
-        # Results area
-        results_label = QLabel("Search Results:")
-        results_label.setStyleSheet("font-weight: bold; font-size: 14px;")
-        layout.addWidget(results_label)
-        
-        self.results_scroll = QScrollArea()
-        self.results_widget = QWidget()
-        self.results_layout = QGridLayout(self.results_widget)
-        self.results_scroll.setWidget(self.results_widget)
-        self.results_scroll.setWidgetResizable(True)
-        
-        layout.addWidget(self.results_scroll)
+        # Visual similarity search viewer
+        self.similarity_viewer = SimilaritySearchViewer()
+        self.similarity_viewer.search_requested.connect(self.perform_similarity_search)
+        self.similarity_viewer.images_deleted.connect(self.on_similarity_images_deleted)
+        layout.addWidget(self.similarity_viewer)
         
         return tab
     
@@ -146,28 +124,10 @@ class ImageProcessorGUI(QMainWindow):
         self.duplicate_progress = QProgressBar()
         layout.addWidget(self.duplicate_progress)
         
-        # Results
-        results_label = QLabel("Duplicate Groups:")
-        results_label.setStyleSheet("font-weight: bold; font-size: 14px;")
-        layout.addWidget(results_label)
-        
-        self.duplicate_results_list = QListWidget()
-        layout.addWidget(self.duplicate_results_list)
-        
-        # Action buttons
-        action_layout = QHBoxLayout()
-        generate_report_btn = QPushButton("Generate HTML Report")
-        generate_report_btn.clicked.connect(self.generate_duplicate_report)
-        
-        delete_selected_btn = QPushButton("Delete Selected Duplicates")
-        delete_selected_btn.clicked.connect(self.delete_selected_duplicates)
-        delete_selected_btn.setStyleSheet("background-color: #f44336; color: white;")
-        
-        action_layout.addWidget(generate_report_btn)
-        action_layout.addWidget(delete_selected_btn)
-        action_layout.addStretch()
-        
-        layout.addLayout(action_layout)
+        # Visual duplicate viewer
+        self.duplicate_viewer = DuplicateGroupViewer()
+        self.duplicate_viewer.images_deleted.connect(self.on_images_deleted)
+        layout.addWidget(self.duplicate_viewer)
         
         return tab
     
@@ -261,12 +221,13 @@ class ImageProcessorGUI(QMainWindow):
     def start_indexing(self, directory: str):
         """Start indexing images in background thread"""
         self.indexing_thread = IndexingThread(directory)
-        self.indexing_thread.progress.connect(self.search_progress.setValue)
+        self.indexing_thread.progress.connect(self.index_progress.setValue)
         self.indexing_thread.finished.connect(self.indexing_finished)
         self.indexing_thread.start()
     
     def indexing_finished(self):
         """Called when indexing is complete"""
+        self.index_progress.setVisible(False)
         QMessageBox.information(self, "Indexing Complete", 
                               "Image directory has been indexed successfully!")
     
@@ -289,48 +250,13 @@ class ImageProcessorGUI(QMainWindow):
             self.index_directory,
             num_results
         )
-        self.search_thread.progress.connect(self.search_progress.setValue)
+        self.search_thread.progress.connect(self.similarity_viewer.progress_bar.setValue)
         self.search_thread.results.connect(self.display_search_results)
         self.search_thread.start()
     
     def display_search_results(self, results: List[Tuple[str, float]]):
-        """Display search results in grid"""
-        # Clear previous results
-        for i in reversed(range(self.results_layout.count())): 
-            self.results_layout.itemAt(i).widget().setParent(None)
-        
-        # Display new results
-        cols = 4
-        for idx, (image_path, score) in enumerate(results):
-            row = idx // cols
-            col = idx % cols
-            
-            # Create result widget
-            result_widget = QWidget()
-            result_layout = QVBoxLayout(result_widget)
-            
-            # Image
-            image_label = QLabel()
-            image_label.setFixedSize(200, 200)
-            image_label.setScaledContents(False)
-            image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            image_label.setStyleSheet("border: 1px solid #ddd;")
-            self.display_image(image_path, image_label)
-            
-            # Info
-            info_label = QLabel(f"Similarity: {score:.2%}\n{Path(image_path).name}")
-            info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            info_label.setWordWrap(True)
-            
-            # Button to open image
-            open_btn = QPushButton("Open")
-            open_btn.clicked.connect(lambda checked, path=image_path: self.open_image_location(path))
-            
-            result_layout.addWidget(image_label)
-            result_layout.addWidget(info_label)
-            result_layout.addWidget(open_btn)
-            
-            self.results_layout.addWidget(result_widget, row, col)
+        """Display search results in visual viewer"""
+        self.similarity_viewer.display_search_results(results)
     
     def perform_duplicate_scan(self):
         """Perform duplicate detection scan"""
@@ -354,21 +280,47 @@ class ImageProcessorGUI(QMainWindow):
     
     def display_duplicate_results(self, duplicates: Dict[str, List[str]]):
         """Display duplicate detection results"""
-        self.duplicate_results_list.clear()
         self.duplicate_data = duplicates
         
-        total_duplicates = sum(len(dups) for dups in duplicates.values())
+        # Load results into visual viewer
+        self.duplicate_viewer.load_duplicate_groups(duplicates)
         
-        for idx, (representative, dups) in enumerate(duplicates.items()):
-            item_text = f"Group {idx + 1}: {len(dups)} duplicates of {Path(representative).name}"
-            self.duplicate_results_list.addItem(item_text)
+        total_duplicates = sum(len(dups) for dups in duplicates.values())
         
         # Show summary
         QMessageBox.information(
             self,
             "Scan Complete",
-            f"Found {len(duplicates)} duplicate groups with {total_duplicates} total duplicates!"
+            f"Found {len(duplicates)} duplicate groups with {total_duplicates} total duplicates!\n\nUse the visual interface below to manage your duplicates."
         )
+    
+    def on_images_deleted(self, deleted_files: List[str]):
+        """Handle when images are deleted from the viewer"""
+        if deleted_files:
+            # Update the duplicate data to remove deleted files
+            for representative, duplicates in list(self.duplicate_data.items()):
+                # Remove deleted files from duplicates list
+                updated_duplicates = [dup for dup in duplicates if dup not in deleted_files]
+                
+                # If representative was deleted, pick a new one
+                if representative in deleted_files:
+                    if updated_duplicates:
+                        new_representative = updated_duplicates[0]
+                        self.duplicate_data[new_representative] = updated_duplicates[1:]
+                        del self.duplicate_data[representative]
+                    else:
+                        del self.duplicate_data[representative]
+                else:
+                    self.duplicate_data[representative] = updated_duplicates
+            
+            # Refresh the viewer
+            self.duplicate_viewer.load_duplicate_groups(self.duplicate_data)
+            
+            QMessageBox.information(
+                self,
+                "Images Deleted",
+                f"Successfully deleted {len(deleted_files)} images from your system."
+            )
     
     def generate_duplicate_report(self):
         """Generate HTML report for duplicates"""
@@ -440,3 +392,44 @@ class ImageProcessorGUI(QMainWindow):
         else:
             QMessageBox.warning(self, "No Directory", 
                               "Please select an index directory first!")
+    
+    def build_index(self):
+        """Build search index for the selected directory"""
+        if not hasattr(self, 'index_directory'):
+            QMessageBox.warning(self, "No Directory", "Please select an index directory first!")
+            return
+        
+        # Start indexing in background
+        self.index_thread = IndexingThread(self.index_directory)
+        self.index_thread.progress.connect(self.index_progress.setValue)
+        self.index_thread.finished.connect(self.on_indexing_complete)
+        self.index_thread.start()
+        
+        self.index_progress.setVisible(True)
+        self.index_progress.setRange(0, 100)
+    
+    def on_indexing_complete(self):
+        """Handle indexing completion"""
+        self.index_progress.setVisible(False)
+        QMessageBox.information(self, "Indexing Complete", "Search index has been built successfully!")
+    
+    def perform_similarity_search(self, query_path: str, num_results: int):
+        """Perform similarity search"""
+        if not hasattr(self, 'index_directory'):
+            QMessageBox.warning(self, "No Index", "Please build an index first!")
+            return
+        
+        # Start search in background
+        self.search_thread = SearchThread(query_path, self.index_directory, num_results)
+        self.search_thread.progress.connect(self.similarity_viewer.progress_bar.setValue)
+        self.search_thread.results.connect(self.similarity_viewer.display_search_results)
+        self.search_thread.start()
+    
+    def on_similarity_images_deleted(self, deleted_files: List[str]):
+        """Handle when images are deleted from similarity search"""
+        if deleted_files:
+            QMessageBox.information(
+                self,
+                "Images Deleted",
+                f"Successfully deleted {len(deleted_files)} images from your system."
+            )

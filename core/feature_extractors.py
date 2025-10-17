@@ -14,6 +14,12 @@ class MultiModalFeatureExtractor:
     def __init__(self, device='cuda' if torch.cuda.is_available() else 'cpu'):
         self.device = device
         self.extractors = {}
+        
+        # Optimize for high performance
+        if torch.cuda.is_available():
+            torch.backends.cudnn.benchmark = True  # Optimize for consistent input sizes
+            torch.backends.cudnn.deterministic = False  # Allow non-deterministic for speed
+        
         self._initialize_extractors()
         
     def _initialize_extractors(self):

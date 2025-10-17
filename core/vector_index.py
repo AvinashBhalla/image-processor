@@ -64,17 +64,29 @@ class VectorIndexManager:
         Returns:
             List of (image_path, distance) tuples
         """
-        query = query_embedding.reshape(1, -1).astype('float32')
-        distances, indices = self.index.search(query, k)
+        if self.index is None:
+            print("Index not initialized")
+            return []
         
-        results = []
-        for dist, idx in zip(distances[0], indices[0]):
-            if idx != -1:  # -1 indicates no result
-                # Convert L2 distance to similarity score (0-1)
-                similarity = 1 / (1 + dist)
-                results.append((self.id_to_path[idx], similarity))
-                
-        return results
+        if not hasattr(self.index, 'ntotal') or self.index.ntotal == 0:
+            print("Index is empty")
+            return []
+        
+        try:
+            query = query_embedding.reshape(1, -1).astype('float32')
+            distances, indices = self.index.search(query, k)
+            
+            results = []
+            for dist, idx in zip(distances[0], indices[0]):
+                if idx != -1 and idx < len(self.id_to_path):  # Valid index
+                    # Convert L2 distance to similarity score (0-1)
+                    similarity = 1 / (1 + dist)
+                    results.append((self.id_to_path[idx], similarity))
+                    
+            return results
+        except Exception as e:
+            print(f"Search error: {e}")
+            return []
     
     def save(self):
         """Save index and metadata"""
@@ -90,10 +102,22 @@ class VectorIndexManager:
             
     def load(self):
         """Load existing index"""
-        if self.index_path.exists():
-            self.index = faiss.read_index(str(self.index_path))
-            
-            with open(self.index_path.with_suffix('.pkl'), 'rb') as f:
-                self.id_to_path = pickle.load(f)
-            return True
-        return False
+        try:
+            if self.index_path.exists():
+                self.index = faiss.read_index(str(self.index_path))
+                
+                metadata_path = self.index_path.with_suffix('.pkl')
+                if metadata_path.exists():
+                    with open(metadata_path, 'rb') as f:
+                        self.id_to_path = pickle.load(f)
+                else:
+                    print("Warning: Index metadata not found")
+                    self.id_to_path = {}
+                return True
+            else:
+                print("Index file not found")
+                return False
+        except Exception as e:
+            print(f"Error loading index: {e}")
+            self.index = None
+            return False

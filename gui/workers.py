@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Dict
 import numpy as np
 import cv2
+import os
 
 class IndexingThread(QThread):
     """Background thread for indexing images"""
@@ -119,13 +120,31 @@ class SearchThread(QThread):
             # Extract query features
             feature_extractor = MultiModalFeatureExtractor()
             img = cv2.imread(self.query_path)
+            
+            if img is None:
+                print(f"Could not load query image: {self.query_path}")
+                self.results.emit([])
+                return
+            
             query_features = feature_extractor.extractors['clip'].extract(img)
             
             self.progress.emit(50)
             
             # Load index and search
             index_manager = VectorIndexManager(dimension=len(query_features))
+            
+            # Check if index file exists
+            if not index_manager.index_path.exists():
+                print("Index file not found. Please build an index first.")
+                self.results.emit([])
+                return
+            
             index_manager.load()
+            
+            if index_manager.index is None:
+                print("Failed to load index. Please rebuild the index.")
+                self.results.emit([])
+                return
             
             self.progress.emit(70)
             
@@ -154,7 +173,8 @@ class DuplicateDetectionThread(QThread):
     def run(self):
         """Run duplicate detection"""
         try:
-            from core.fast_duplicate_detector import FastDuplicateDetector
+            from core.high_performance_detector import HighPerformanceDuplicateDetector
+            import torch
             
             # Scan directory
             self.progress.emit(5)
@@ -171,8 +191,12 @@ class DuplicateDetectionThread(QThread):
             image_paths = [str(f) for f in image_files]
             self.progress.emit(10)
             
-            # Use fast detector with progress callback
-            detector = FastDuplicateDetector(hash_threshold=self.hash_threshold)
+            # Use memory-optimized detector for maximum speed
+            from core.memory_optimized_detector import MemoryOptimizedDetector
+            detector = MemoryOptimizedDetector(
+                hash_threshold=self.hash_threshold,
+                memory_limit_gb=16  # Use more memory for speed
+            )
             
             # Create progress callback
             def progress_callback(progress):
