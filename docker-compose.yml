@@ -1,0 +1,36 @@
+# docker-compose.yml
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: image-processor
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./models:/app/models
+      - ~/Pictures:/images:ro  # Mount user's photos (read-only)
+    environment:
+      - PYTHONUNBUFFERED=1
+      - CUDA_VISIBLE_DEVICES=0  # Use GPU if available
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    command: python main.py
+    
+  # Optional: Web interface (future enhancement)
+  web:
+    build: ./web
+    container_name: image-processor-web
+    ports:
+      - "8080:8080"
+    depends_on:
+      - app
+    volumes:
+      - ./data:/app/data:ro

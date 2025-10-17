@@ -1,0 +1,18 @@
+# configs/accuracy.yaml
+# Optimized for accuracy over speed
+---
+feature_extraction:
+  batch_size: 16
+  max_image_dimension: 2048  # Higher resolution
+
+similarity_search:
+  index_type: "Flat"  # Exact search
+  nprobe: 20
+
+duplicate_detection:
+  hash_threshold: 3  # More strict
+  embedding_threshold: 0.98
+  ssim_threshold: 0.95
+  enable_stage1: true
+  enable_stage2: true
+  enable_stage3: true

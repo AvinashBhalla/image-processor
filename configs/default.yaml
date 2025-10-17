@@ -1,0 +1,25 @@
+cache_dir: data/cache
+database_path: data/images.db
+duplicate_detection:
+  embedding_threshold: 0.95
+  enable_stage1: true
+  enable_stage2: true
+  enable_stage3: true
+  hash_threshold: 5
+  ssim_threshold: 0.9
+feature_extraction:
+  batch_size: 32
+  cache_features: true
+  max_image_dimension: 1024
+  model_name: openai/clip-vit-base-patch32
+  use_gpu: true
+index_path: data/faiss.index
+log_level: INFO
+memory_limit_gb: 4.0
+n_workers: 4
+similarity_search:
+  index_type: IVF
+  max_results: 100
+  nlist: 100
+  nprobe: 10
+  similarity_threshold: 0.7

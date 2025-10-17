@@ -1,0 +1,19 @@
+# configs/performance.yaml
+# Optimized for speed over accuracy
+---
+system:
+  n_workers: 8
+  memory_limit_gb: 8.0
+
+feature_extraction:
+  batch_size: 64
+  max_image_dimension: 512  # Smaller for speed
+
+similarity_search:
+  index_type: "HNSW"  # Faster search
+  nprobe: 5  # Fewer probes
+
+duplicate_detection:
+  hash_threshold: 8  # More permissive
+  enable_stage2: false  # Skip for speed
+  enable_stage3: false
